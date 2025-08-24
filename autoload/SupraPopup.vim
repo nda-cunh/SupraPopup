@@ -152,7 +152,27 @@ def ActualizeSize(popup: dict<any>)
 enddef
 
 export def SetText(popup: dict<any>, text: list<string>)
-	popup_settext(popup.wid, text)
+	if popup.type == 'button'
+		var writed_text = join(text, '\n')
+		const width = popup.width 
+		if popup.text_align == 'center'
+			const text_len = len(writed_text)
+			if text_len < width
+				var space = (width - text_len) / 2
+				var left_space = repeat(' ', space)
+				var right_space = repeat(' ', width - space - text_len)
+				var new_text = left_space .. popup.text .. right_space
+				popup_settext(popup.wid, [new_text])
+			else
+				var new_text = popup.text[: width]
+				popup_settext(popup.wid, [new_text])
+			endif
+		else
+			popup_settext(popup.wid, writed_text)
+		endif
+	else
+		popup_settext(popup.wid, text)
+	endif
 	ActualizeSize(popup)
 	SetTitle(popup, popup.title)
 enddef
@@ -191,6 +211,18 @@ export def SetFocus(popup: dict<any>, focus: bool = true)
 		else
 			ActualiseCursor(popup, popup.wid, popup.cur_pos)
 		endif
+	elseif popup.type == 'button'
+		if focus == false
+			echom 'button unfocused'
+			popup_setoptions(popup.wid, {
+				borderchars: ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
+			})
+		else
+			echom 'button focused'
+			popup_setoptions(popup.wid, {
+				borderchars: ['═', '║', '═', '║', '╔', '╗', '╝', '╚'],
+			})
+		endif
 	endif
 enddef
 
@@ -222,6 +254,7 @@ export def Input(options: dict<any> = {}): dict<any>
 	simple.type = 'input'
 	simple.input_line = []
 	simple.prompt = 'Input: '
+	simple.is_password = false
 	simple.cur_pos = 0
 	simple.mid = 0
 	simple.max_pos = 0
@@ -330,30 +363,6 @@ def FilterInput(popup: dict<any>, wid: number, key: string): number
             line = pre + [content] + line[cur_pos :]
 		endif
 		cur_pos += len_content
-	elseif key == "\<Tab>"
-		if popup.focus == false
-			return NOBLOCK
-		endif
-		if popup.cb_focus != null_function
-			var tab_focus = popup.cb_focus(popup)
-			if has_key(tab_focus, 'next')
-				SetFocus(tab_focus.next, true)
-				return BLOCK
-			endif
-		endif
-		return NOBLOCK
-	elseif key == "\<S-Tab>"
-		if popup.focus == false
-			return NOBLOCK
-		endif
-		if popup.cb_focus != null_function
-			var tab_focus = popup.cb_focus(popup)
-			if has_key(tab_focus, 'prev')
-				SetFocus(tab_focus.prev, true)
-				return BLOCK
-			endif
-		endif
-		return NOBLOCK
 	elseif key == "\<Left>"
         cur_pos = max([ 0, cur_pos - 1 ])
     elseif key == "\<Right>"
@@ -391,7 +400,12 @@ def FilterInput(popup: dict<any>, wid: number, key: string): number
 		return NOBLOCK
 	endif
 	# Draw the line and actualise the cursor position
-	SetText(popup, [popup.prompt .. join(line, '') .. ' '])
+	if popup.is_password
+		var display_line = repeat('*', len(line))
+		SetText(popup, [popup.prompt .. display_line .. ' '])
+	else
+		SetText(popup, [popup.prompt .. join(line, '') .. ' '])
+	endif
 	max_pos = len(line)
 	popup.input_line = line
 	popup.cur_pos = cur_pos
@@ -590,7 +604,7 @@ export def Simple(options: dict<any>): dict<any>
 		cb_keypressed_focus: [], # Function (SupraPopup: popup, key: string) -> void 
 		cb_keypressed_nofocus: [], # Function (SupraPopup: popup, key: string) -> void
 		hidden: 0, # 0: not hidden, 1: hidden
-		moved: [0, 0, 0]
+		moved: [0, 0, 0],
 	}
 
 	for key in keys(options)
@@ -630,12 +644,36 @@ export def Simple(options: dict<any>): dict<any>
 		},
 	})
 
-	AddEventFilterNoFocus(supradict, (_, _, key) => {
+	AddEventFilterNoFocus(supradict, (popup, _, key) => {
 		if key ==? "\<LeftMouse>"
 			var mousepos = getmousepos()
 			if mousepos.winid == wid
-				SetFocus(supradict, true)
+				SetFocus(popup, true)
 			endif
+		elseif key == "\<Tab>"
+			if popup.focus == false
+				return NOBLOCK
+			endif
+			if popup.cb_focus != null_function
+				var tab_focus = popup.cb_focus(popup)
+				if has_key(tab_focus, 'next')
+					SetFocus(tab_focus.next, true)
+					return BLOCK
+				endif
+			endif
+			return NOBLOCK
+		elseif key == "\<S-Tab>"
+			if popup.focus == false
+				return NOBLOCK
+			endif
+			if popup.cb_focus != null_function
+				var tab_focus = popup.cb_focus(popup)
+				if has_key(tab_focus, 'prev')
+					SetFocus(tab_focus.prev, true)
+					return BLOCK
+				endif
+			endif
+			return NOBLOCK
 		endif
 		return CONTINUE 
 	})
@@ -655,7 +693,13 @@ export def Simple(options: dict<any>): dict<any>
 	})
 
 	SetSize(supradict, supradict.width, supradict.height)
-	# SetTitle(supradict, supradict.title)
+
+	var pos = popup_getpos(wid)
+	supradict.width = pos.core_width
+	supradict.height = pos.core_height
+	supradict.line = pos.line
+	supradict.col = pos.col
+
 	return supradict
 enddef
 
@@ -696,4 +740,43 @@ def FilterSimple(wid: number, key: string): number
 		endif
 	endfor
 	return 0
+enddef
+
+
+# Add Event Function when a button is clicked.
+export def AddEventButtonClick(popup: dict<any>, Func: func): func
+	add(popup.cb_button_click, Func)
+	return Func
+enddef
+
+export def Button(options: dict<any>): dict<any>
+	var simple = Simple(options)
+	simple.type = 'button'
+	simple.text_align = 'center'
+	simple.cb_button_click = []
+	# Center the text
+	SetText(simple, [simple.text])
+	AddEventFilterNoFocus(simple, (popup, wid, key) => {
+		if key ==? "\<LeftMouse>" || key ==? "\<2-LeftMouse>"
+			var mousepos = getmousepos()
+			if mousepos.winid == wid
+				for Func in popup.cb_button_click
+					Func(popup)
+				endfor
+				SetFocus(popup, true)
+				return BLOCK
+			endif
+		endif
+		return CONTINUE 
+	})
+	AddEventFilterFocus(simple, (popup, wid, key) => {
+		if key ==? "\<Enter>" || key ==? "\<CR>"
+			for Func in popup.cb_button_click
+				Func(popup)
+			endfor
+			return BLOCK
+		endif
+		return NOBLOCK 
+	})
+	return simple
 enddef
