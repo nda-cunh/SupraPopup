@@ -271,6 +271,10 @@ export abstract class SupraPopup
 
     # =========================================================================
     # Utils
+    def GetWid(): number
+        return this.wid
+    enddef
+
     # =========================================================================
     def SetTitle(title: string)
         this.title = title

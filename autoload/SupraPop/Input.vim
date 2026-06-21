@@ -21,6 +21,7 @@ export class Input extends Base.SupraPopup
 
     var cb_enter:   list<func> = []
     var cb_changed: list<func> = []
+    var cb_redraw:  list<func> = []
 
     def new(options: dict<any> = {})
         this.type = 'input'
@@ -61,6 +62,10 @@ export class Input extends Base.SupraPopup
         add(this.cb_changed, F)
         return F
     enddef
+    def AddEventRedraw(F: func): func
+        add(this.cb_redraw, F)
+        return F
+    enddef
 
     # --- text API ---
     def ClearInput()
@@ -81,6 +86,10 @@ export class Input extends Base.SupraPopup
 
     def GetInput(): string
         return join(this.input_line, '')
+    enddef
+
+    def IsAtEnd(): bool
+        return this.cur_pos == this.max_pos
     enddef
 
     # --- overridden hooks ---
@@ -120,6 +129,9 @@ export class Input extends Base.SupraPopup
         else
             this.SetText([this.prompt .. join(this.input_line, '') .. ' '])
         endif
+        for F in this.cb_redraw
+            F(this)
+        endfor
     enddef
 
     # Editing logic (virtual method)
