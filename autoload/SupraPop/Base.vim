@@ -16,6 +16,33 @@ export abstract class SupraPopup
     static var instances:    dict<any> = {}
     static var focus_actual: number = 0
 
+    static var _map_snapshot: list<dict<any>> = []
+    static var _maps_cleared: bool = false
+
+    static def _ClearUserMaps()
+        if SupraPopup._maps_cleared
+            return
+        endif
+        SupraPopup._maps_cleared = true
+        SupraPopup._map_snapshot = maplist()->filter((_, m) =>
+            m.mode =~ '[n ]' && m.lhs !~? '^<Plug>')
+        for m in SupraPopup._map_snapshot
+            silent! execute (get(m, 'buffer', 0) ? 'nunmap <buffer> ' : 'nunmap ')
+                .. substitute(m.lhs, '|', '<Bar>', 'g')
+        endfor
+    enddef
+
+    static def _RestoreUserMaps()
+        if !SupraPopup._maps_cleared
+            return
+        endif
+        SupraPopup._maps_cleared = false
+        for m in SupraPopup._map_snapshot
+            silent! mapset(m)
+        endfor
+        SupraPopup._map_snapshot = []
+    enddef
+
     # --- geometry / options ---
     # col/line are `any`: popup_create accepts string positions ("cursor+1").
     # After _Setup they are resolved back to numbers via popup_getpos().
@@ -29,12 +56,12 @@ export abstract class SupraPopup
     public var title:     string = ''
     public var title_pos: string = 'center'
 
-    var mapping:    number = 0
+    var mapping:    number = 1
     var cursorline: number = 0
     var scrollbar:  number = 0
     var hidden:     number = 0
     var moved:      any = [0, 0, 0]   # list<number> or a string ('WORD', 'any'…)
-    var close_key:  list<string> = ["\<Esc>", "\<C-c>", "\<C-q>"]
+    var close_key:  list<string> = ["\<Esc>", "\<C-q>"]
 
     # --- internal state ---
     var wid:      number = 0
@@ -82,6 +109,7 @@ export abstract class SupraPopup
         })
 
         SupraPopup.instances[this.wid] = this
+        SupraPopup._ClearUserMaps()
         this.SetSize(this.width, this.height)
 
         var p = popup_getpos(this.wid)
@@ -255,6 +283,9 @@ export abstract class SupraPopup
         endif
         if SupraPopup.instances->has_key(this.wid)
             remove(SupraPopup.instances, this.wid)
+        endif
+        if empty(SupraPopup.instances)
+            SupraPopup._RestoreUserMaps()
         endif
     enddef
 
