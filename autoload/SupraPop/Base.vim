@@ -37,9 +37,10 @@ export abstract class SupraPopup
     var close_key:  list<string> = ["\<Esc>", "\<C-c>", "\<C-q>"]
 
     # --- internal state ---
-    var wid:   number = 0
-    var focus: bool   = false
-    var type:  string = 'simple'
+    var wid:      number = 0
+    var focus:    bool   = false
+    var type:     string = 'simple'
+    var _pasting: bool   = false
 
     # --- Callbacks
     var cb_close:             list<func> = []
@@ -122,7 +123,37 @@ export abstract class SupraPopup
         SupraPopup.instances[wid].HandleClosed()
     enddef
 
+    def _FilterPaste(key: string): number
+        if key == "\<PasteStart>"
+            this._pasting = true
+            return BLOCK
+        endif
+        if !this._pasting
+            return CONTINUE
+        endif
+        if key == "\<PasteEnd>"
+            this._pasting = false
+            this.OnPasteEnd()
+            return BLOCK
+        endif
+        this.OnPasteKey(key)
+        return BLOCK
+    enddef
+
+    def OnPasteKey(key: string)
+    enddef
+
+    def OnPasteEnd()
+    enddef
+
     def Filter(wid: number, key: string): number
+        if this.focus
+            var rp = this._FilterPaste(key)
+            if rp != CONTINUE
+                return rp
+            endif
+        endif
+
         for F in this.cb_keypressed_nofocus
             F(this, key)
         endfor
@@ -353,6 +384,7 @@ export abstract class SupraPopup
             return
         endif
         this.focus = focus
+        this._pasting = false
         if focus
             if SupraPopup.focus_actual != 0
                 && SupraPopup.instances->has_key(SupraPopup.focus_actual)

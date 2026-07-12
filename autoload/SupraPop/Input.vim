@@ -7,6 +7,14 @@ const NOBLOCK  = Base.NOBLOCK
 const BLOCK    = Base.BLOCK
 const CONTINUE = Base.CONTINUE
 
+def IsPrintable(key: string): bool
+    if strchars(key) != 1 || key[0] == "\x80"
+        return false
+    endif
+    var c = char2nr(key)
+    return c >= 32 && c != 127
+enddef
+
 export class Input extends Base.SupraPopup
     public var prompt:     string = 'Input: '
     public var is_password: bool  = false
@@ -123,6 +131,45 @@ export class Input extends Base.SupraPopup
         this.mid = matchaddpos(hl, [[1, hi_end_pos]], 10, -1, {window: this.wid})
     enddef
 
+    def _InsertChars(chars: list<string>)
+        if len(chars) == 0
+            return
+        endif
+        var line = this.input_line
+        var cur  = this.cur_pos
+        if cur >= len(line)
+            line = line + chars
+        else
+            var pre = cur - 1 >= 0 ? line[: cur - 1] : []
+            line = pre + chars + line[cur :]
+        endif
+        this.input_line = line
+        this.cur_pos    = cur + len(chars)
+        this.max_pos    = len(line)
+    enddef
+
+    def _FireChanged(key: string)
+        if len(this.cb_changed) == 0
+            return
+        endif
+        var txt = join(copy(this.input_line), '')
+        for F in this.cb_changed
+            F(this, key, txt)
+        endfor
+    enddef
+
+    def OnPasteKey(key: string)
+        if IsPrintable(key)
+            this._InsertChars([key])
+        endif
+    enddef
+
+    def OnPasteEnd()
+        this._Redraw()
+        this._ActualiseCursor()
+        this._FireChanged("\<PasteEnd>")
+    enddef
+
     def _Redraw()
         if this.is_password
             this.SetText([this.prompt .. repeat('*', len(this.input_line)) .. ' '])
@@ -136,36 +183,23 @@ export class Input extends Base.SupraPopup
 
     # Editing logic (virtual method)
     def OnFocusKey(wid: number, key: string): number
-        var ascii = char2nr(key)
-        var line  = this.input_line
-        var cur   = this.cur_pos
-        var maxp  = this.max_pos
+        var cur     = this.cur_pos
+        var maxp    = this.max_pos
         var changed = false
 
-        if (len(key) == 1 && ascii >= 32 && ascii <= 126)
-                || (ascii >= 19968 && ascii <= 205743)
+        if IsPrintable(key)
+            this._InsertChars([key])
             changed = true
-            if cur == len(line)
-                line->add(key)
-            else
-                var pre = cur - 1 >= 0 ? line[: cur - 1] : []
-                line = pre + [key] + line[cur :]
-            endif
-            cur += 1
         elseif key == "\<bs>"
-            changed = true
             if cur == 0
                 return BLOCK
             endif
-            if cur == len(line)
-                line = line[: -2]
-            else
-                var before = cur - 2 >= 0 ? line[: cur - 2] : []
-                line = before + line[cur :]
-            endif
-            cur = max([0, cur - 1])
+            var before = cur - 2 >= 0 ? this.input_line[: cur - 2] : []
+            this.input_line = before + this.input_line[cur :]
+            this.cur_pos    = cur - 1
+            this.max_pos    = len(this.input_line)
+            changed = true
         elseif key == "\<Enter>" || key == "\<CR>"
-            var txt = join(copy(this.input_line), '')
             for F in this.cb_enter
                 F(this)
             endfor
@@ -173,61 +207,41 @@ export class Input extends Base.SupraPopup
         elseif key == "\<C-v>"
             var content = substitute(getreg('"'), '\n', '', 'g')
             if len(content) == 0
-                return NOBLOCK
+                return BLOCK
             endif
+            this._InsertChars(split(content, '\zs'))
             changed = true
-            var chars = split(content, '\zs')
-            if cur == len(line)
-                line += chars
-            else
-                var pre = cur - 1 >= 0 ? line[: cur - 1] : []
-                line = pre + chars + line[cur :]
-            endif
-            cur += len(chars)
         elseif key == "\<Left>"
-            cur = max([0, cur - 1])
+            this.cur_pos = max([0, cur - 1])
         elseif key == "\<Right>"
-            cur = min([maxp, cur + 1])
+            this.cur_pos = min([maxp, cur + 1])
         elseif key == "\<End>"
-            cur = maxp
+            this.cur_pos = maxp
         elseif key == "\<Home>"
-            cur = 0
+            this.cur_pos = 0
         elseif key ==? "\<Del>"
-            changed = true
             if cur == maxp
                 return BLOCK
             endif
-            if cur == 0
-                line = line[1 :]
-            else
-                var before = cur - 1 >= 0 ? line[: cur - 1] : []
-                line = before + line[cur + 1 :]
-            endif
+            var before = cur - 1 >= 0 ? this.input_line[: cur - 1] : []
+            this.input_line = before + this.input_line[cur + 1 :]
+            this.max_pos    = len(this.input_line)
+            changed = true
         elseif key ==? "\<LeftMouse>" || key ==? "\<2-LeftMouse>"
             var mp = getmousepos()
             if mp.winid != wid
                 return NOBLOCK
             endif
-            cur = mp.wincol - this.prompt_charlen - 1
-            cur = max([0, min([maxp, cur])])
+            this.cur_pos = max([0, min([maxp, mp.wincol - this.prompt_charlen - 1])])
         else
             return NOBLOCK
         endif
 
-        this.input_line = line
-        this.cur_pos    = cur
-        this.max_pos    = len(line)
         this._Redraw()
         this._ActualiseCursor()
 
         if changed
-            if len(this.cb_changed) == 0
-                return BLOCK
-            endif
-            var txt = len(this.input_line) == 0 ? '' : join(copy(this.input_line), '')
-            for F in this.cb_changed
-                F(this, key, txt)
-            endfor
+            this._FireChanged(key)
         endif
         return BLOCK
     enddef
