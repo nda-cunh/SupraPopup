@@ -115,6 +115,19 @@ export class Input extends Base.SupraPopup
         return join(this.input_line, '')
     enddef
 
+    # prompt_charlen is a byte length: _ByteCol() builds match columns from it.
+    def SetPrompt(new_prompt: string)
+        this.prompt = new_prompt
+        this.prompt_charlen = len(new_prompt)
+        this._Redraw()
+        this._ActualiseSelection()
+        this._ActualiseCursor()
+    enddef
+
+    def GetPrompt(): string
+        return this.prompt
+    enddef
+
     def IsAtEnd(): bool
         return this.cur_pos == this.max_pos
     enddef
