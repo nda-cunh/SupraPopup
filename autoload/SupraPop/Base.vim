@@ -298,7 +298,10 @@ export abstract class SupraPopup
     enddef
 
     def RemoveEventClose(F: func)
-        remove(this.cb_close, index(this.cb_close, F))
+        var i = index(this.cb_close, F)
+        if i >= 0
+            remove(this.cb_close, i)
+        endif
     enddef
 
     def AddEventFilterFocus(F: func): func

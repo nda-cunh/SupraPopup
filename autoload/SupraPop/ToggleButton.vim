@@ -33,7 +33,10 @@ export class ToggleButton extends Button.Button
         return F
     enddef
     def RemoveEventToggle(F: func)
-        remove(this.cb_toggle, index(this.cb_toggle, F))
+        var i = index(this.cb_toggle, F)
+        if i >= 0
+            remove(this.cb_toggle, i)
+        endif
     enddef
 
     # --- state API ---
