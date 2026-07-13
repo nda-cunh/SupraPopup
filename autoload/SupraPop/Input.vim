@@ -107,7 +107,8 @@ export class Input extends Base.SupraPopup
         this.cur_pos = len(this.input_line)
         this.max_pos = this.cur_pos
         this.ClearSelection()
-        this.SetText([this.prompt .. text .. ' '])
+        var shown = this.is_password ? repeat('*', len(this.input_line)) : text
+        this.SetText([this.prompt .. shown .. ' '])
         this._ActualiseCursor()
     enddef
 
@@ -115,7 +116,6 @@ export class Input extends Base.SupraPopup
         return join(this.input_line, '')
     enddef
 
-    # prompt_charlen is a byte length: _ByteCol() builds match columns from it.
     def SetPrompt(new_prompt: string)
         this.prompt = new_prompt
         this.prompt_charlen = len(new_prompt)
